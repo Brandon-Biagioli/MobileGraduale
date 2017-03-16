@@ -22,8 +22,8 @@ public class GregorianChantView extends ChantView {
     protected int measuredHeight = 400;//this is updated as the chant is drawn, and used by onMeasure()
     protected boolean drawnYet = false;
 
-    protected enum Mode { ONE,TWO,THREE,FOUR,FIVE,SIX,SEVEN,EIGHT }
-    protected enum Clef { DO,FA }
+    protected enum Mode { ONE,TWO,THREE,FOUR,FIVE,SIX,SEVEN,EIGHT } // modes in gregorian chant
+    protected enum Clef { DO,FA } //gregorian chant has two possible clefs
     protected enum NoteFlag { //these flags are all used for formatting notes in one way or another
         DOT,RHOMBUS,PORRECTUS,SECOND_PORRECTUS,THIRD_PORRECTUS,V_EPISEMA,H_EPISEMA,QUILISMA,LIQUESCENT,
         SCANDICUS,TORCULUS,SECOND_TORCULUS,THIRD_TORCULUS,PEAK,ASCENDING,FIRST_DESCENDING,SECOND_DESCENDING,
@@ -36,6 +36,7 @@ public class GregorianChantView extends ChantView {
     protected Paint staffPaint;
     protected Paint notePaint;
     protected Paint episemaPaint;
+    protected Paint errorPaint;
     protected Path clefPath;//objects for drawing the clef and notes; these get reused frequently
     protected Path notePath;
     protected RectF arcRectF;
@@ -43,11 +44,10 @@ public class GregorianChantView extends ChantView {
                                 /*normally, there will only be one LinkedList of syllables. However,
                                 * when a chant has sections with different clefs, I will break the
                                 * list of syllables into multiple lists, one list per section*/
-    protected int currentSection;
-    protected ArrayList<Integer> clefLine;
-    protected ArrayList<Clef> clef;
+    protected int currentSection; //If a single chant has multiple clefs, each clef will start a new section
+    protected ArrayList<Clef> clef; //list of clefs (usually there's only one, sometimes there's two)
+    protected ArrayList<Integer> clefLine; //the vertical position of each clef
     protected LinkedList<String> errorMessages;//error messages
-    protected Paint errorPaint;
 
     protected static final float SQRT_TWO = (float)Math.sqrt(2);//a useful number for geometry
 
@@ -65,6 +65,11 @@ public class GregorianChantView extends ChantView {
 
     protected ChantNote previousNote; //while notes are being drawn, this keeps track of the previous note
 
+    // This class contains a syllable and all of the notes associated with the syllable. It might be a bar line,
+    // because it is convenient to have bar lines in the same LinkedList as the normal syllables; a bar
+    // line has " " for text and just one note with a BAR flag. There are also a few syllables
+    // without notes; these are text that gives directions, such as "Ps." to mark the start of a psalm
+    // or "V." to mark the start of a verse.
     protected class ChantSyllable {
         protected String text;
         ChantNote[] notes;
@@ -83,6 +88,8 @@ public class GregorianChantView extends ChantView {
         }
     }
 
+    // An individual note. The note knows where it is relative to the staff lines (value), can be marked with
+    // a variety of flags (see the NoteFlag enum). offset and episema_height are used to get spacing right.
     protected class ChantNote {
         protected float value;//1 to 4 correspond to staff lines, and intermediate, higher, and
                                 //lower values are possible
@@ -97,7 +104,7 @@ public class GregorianChantView extends ChantView {
             episema_height = BASE_EPISEMA_HEIGHT;
         }
 
-        //This method uses the flags to adjust the note's offset; it is not called until
+        // This method uses the flags to adjust the note's offset; it is not called until
         // it is certain that the flags will not be adjusted further.
         protected int adjustOffset(ChantNote nextNote) {
             if (nextNote != null &&
@@ -114,6 +121,8 @@ public class GregorianChantView extends ChantView {
         }
     }
 
+    // The constructor is slightly different from most View constructors, because it needs to know
+    // which chant to load.
     public GregorianChantView(Context context, int chantID) {
         super(context);
 
@@ -136,22 +145,25 @@ public class GregorianChantView extends ChantView {
         parseText(getContext().getString(chantID));
     }
 
+    // This method, called only once by the constructor, parses a string retrieved from strings.xml,
+    // and turns it into ChantNotes and ChantSyllables
     protected void parseText(String text) {
+        currentSection = -1; // This will increase to 0 as soon as a "CLEF" is parsed. If no CLEF is
+                            // parsed, there will be an error message.
+        ChantNote[] syllableNotesArray; // this is reused for initializing each new syllable
         syllables = new ArrayList<>();
-        currentSection = -1;
-        ChantNote[] syllableNotesArray;
         clef = new ArrayList<>();
         clefLine = new ArrayList<>();
-        Iterator<ChantNote> it;
-        EnumSet<NoteFlag> flags;
-        LinkedList<ChantNote> syllableNotes = new LinkedList<>();
+        Iterator<ChantNote> it; // this is reused for initializing each new syllable
+        EnumSet<NoteFlag> flags; // this is reused for initializing each new syllable
+        LinkedList<ChantNote> syllableNotes = new LinkedList<>(); // this is reused for each section
 
-        String[] tokens = text.split(" ");
-        String[] parts;
-        String[] inner;
+        String[] tokens = text.split(" "); // these are the pieces that the text is broken into
+        String[] parts;                    // for parsing
         String lead;
+        String[] inner;
 
-        boolean wordEnd = true;
+        boolean wordEnd = true; // boolean variables reused for initializing each new syllable
         boolean hasFlat = false;
         boolean hasNeutral = false;
 
@@ -199,7 +211,8 @@ public class GregorianChantView extends ChantView {
                         }
                         break;
                     case "CLEF":
-                        currentSection++;
+                        currentSection++; // a new clef means a new section;
+                                        // the first clef means the first (and usually only) section
                         syllables.add(new LinkedList<ChantSyllable>());
                         switch (inner[0]) {
                             case "do":
@@ -292,6 +305,7 @@ public class GregorianChantView extends ChantView {
                             }
 
                             switch (inner[i]) {
+                                //if inner[i] is the name of a solfege note, we will create a note with that value
                                 case "do":
                                     /*noteValue += 0; no need to actually execute this code*/
                                     addNote = true;
@@ -325,6 +339,8 @@ public class GregorianChantView extends ChantView {
                                     noteValue += 3;
                                     addNote = true;
                                     break;
+                                //if inner[i] is not the name of a note, it should be a flag with information
+                                //about the note or the syllable
                                 case "neut":
                                     hasNeutral = true;
                                     break;
@@ -509,6 +525,7 @@ public class GregorianChantView extends ChantView {
         }
     }
 
+    //to allow this View to be scrolled, GregorianChantView keeps track of its height (i.e. the variable measuredHeight)
     @Override
     public void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
@@ -520,8 +537,8 @@ public class GregorianChantView extends ChantView {
     public void onDraw(Canvas canvas) {
         super.onDraw(canvas);
 
-        measuredHeight = 400;
-        float xOffset = 0;
+        measuredHeight = 400; // this is a default value, and may be updated throughout the drawing process
+        float xOffset = STAFF_START_X;
         float yOffset = 0;
         currentSection = 0;
 
@@ -538,7 +555,6 @@ public class GregorianChantView extends ChantView {
         }
 
         //draw bar lines
-        xOffset = STAFF_START_X;
         canvas.translate(xOffset,yOffset);
         int canvasWidth = canvas.getWidth();
         float[] barLinePoints = new float[16];
@@ -553,14 +569,15 @@ public class GregorianChantView extends ChantView {
 
         boolean needCustos = false;
         while (currentSection < syllables.size()) {
-            drawClef(canvas, xOffset, yOffset);
+            drawClef(canvas, xOffset, yOffset); //start with a clef
             xOffset += CLEF_OFFSET;
             for (ChantSyllable syllable : syllables.get(currentSection)) {
                 canvas.save();
 
                 //check whether we need to start a new line
                 if (xOffset + syllable.width > canvasWidth - WORD_OFFSET) {
-                    needCustos = true;
+                    needCustos = true; // a custos is a half-drawn note at the end of a line,
+                                        //indicating what the first note of the next line will be
                     xOffset = STAFF_START_X;
                     yOffset += 400;
                     measuredHeight += 400;
@@ -580,19 +597,25 @@ public class GregorianChantView extends ChantView {
 
                     xOffset += CLEF_OFFSET;
                 }
-                canvas.translate(xOffset, yOffset);
+
                 if (needCustos) {
+                    // a custos is a half-drawn note at the end of a line,
+                    //indicating what the first note of the next line will be
                     needCustos = false;
                     canvas.save();
-                    canvas.translate(canvasWidth - BASE_NOTE_OFFSET * 2 - STAFF_END_MARGIN, -400);
+                    canvas.translate(canvasWidth - BASE_NOTE_OFFSET * 2 - STAFF_END_MARGIN, yOffset-400);
                     if (syllable.notes != null) {
                         drawCustos(canvas, syllable.notes[0]);
                     }
                     canvas.restore();
                 }
+
+                //draw the syllable (and by extentions, all of its notes)
+                canvas.translate(xOffset, yOffset);
                 drawSyllable(canvas, syllable);
                 canvas.restore();
 
+                //the offset is somewhat large if the syllable ends a word
                 if (syllable.wordEnd) {
                     xOffset += syllable.width + WORD_OFFSET;
                 } else {
@@ -602,18 +625,19 @@ public class GregorianChantView extends ChantView {
             currentSection++;
         }
 
-        if (!drawnYet) {//Because this view waits until draw() is called to determine when to start
+        if (!drawnYet) {//Because this View waits until draw() is called to determine when to start
                         //a new line, it won't know until the first draw() how much height it needs.
                         //However, onMeasure() is called before the first draw() is called, so the
-                        //view gives an initial (bad) estimate, and then fixes it here once it knows
+                        //View gives an initial (bad) estimate, and then fixes it here once it knows
                         //how much height it actually needs.
-                        //This view finds out how much height it needs by updating the variable measuredHeight
+                        //This View finds out how much height it needs by updating the variable measuredHeight
                         //as it draws. onMeasure() then looks at measuredHeight when it is called.
             drawnYet = true;
             requestLayout();
         }
     }
 
+    // This method draws a clef (either do or fa)
     protected void drawClef(Canvas canvas, float xOffset, float yOffset) {
         canvas.save();
         canvas.translate(xOffset, yOffset);
@@ -657,6 +681,8 @@ public class GregorianChantView extends ChantView {
         canvas.restore();
     }
 
+    // This method draws a syllable. In particular, it draws the text and calls drawNote for each
+    // of its notes.
     protected void drawSyllable(Canvas canvas, ChantSyllable syllable) {
         //lyrics
         canvas.drawText(syllable.text, 0, STAFF_START_Y + 4 * STAFF_SPACE + TEXT_START_OFFSET, textPaint);
@@ -677,6 +703,8 @@ public class GregorianChantView extends ChantView {
         }
     }
 
+    // This method draws a note, and does all the work of interpreting the note's flags to determine
+    // how to draw it.
     protected void drawNote(Canvas canvas, ChantNote note) {
         notePath.reset();
         canvas.save();
@@ -725,6 +753,7 @@ public class GregorianChantView extends ChantView {
                 canvas.scale(0.75f,0.75f);
             }
             if (note.flags.contains(NoteFlag.DOT)) {
+                //draw a little down next to the note, down and to the right
                 canvas.drawCircle(27.5f, -5, 5, notePaint);
             }
             if (note.flags.contains(NoteFlag.H_EPISEMA)) {
@@ -742,6 +771,7 @@ public class GregorianChantView extends ChantView {
             if (note.flags.contains(NoteFlag.PORRECTUS)) {
                 //do nothing; wait until the second part of the porrectus to draw
             } else if (note.flags.contains(NoteFlag.SECOND_PORRECTUS)) {
+                //this is a diagonal brush-stroke from the first note of the porrectus to the second
                 notePath.moveTo(-50,(note.value - previousNote.value) * STAFF_SPACE);
                 notePath.lineTo(20,0);
                 notePath.lineTo(20,20);
@@ -773,7 +803,7 @@ public class GregorianChantView extends ChantView {
                 notePath.close();
                 canvas.drawPath(notePath, notePaint);
             } else if (note.flags.contains(NoteFlag.RHOMBUS)) {
-                //draw a rhombus
+                //draw a small rhombus
                 notePath.moveTo(10,-5);
                 notePath.lineTo(20,10);
                 notePath.lineTo(10,25);
@@ -781,7 +811,7 @@ public class GregorianChantView extends ChantView {
                 notePath.close();
                 canvas.drawPath(notePath,notePaint);
             } else {
-                //draw a punctum
+                //draw a punctum, which looks like a small arched rectangle
                 notePath.moveTo(0, 0);
                 arcRectF.set(10 - 10 * SQRT_TWO, 10 - 10 * SQRT_TWO,
                         10 + 10 * SQRT_TWO, 10 + 10 * SQRT_TWO);
@@ -798,6 +828,7 @@ public class GregorianChantView extends ChantView {
         canvas.restore();
     }
 
+    // This method draw a custos.
     protected void drawCustos(Canvas canvas, ChantNote note) {
         canvas.translate(0, STAFF_START_Y + STAFF_SPACE * (4 - note.value) - 10);
 
@@ -811,6 +842,7 @@ public class GregorianChantView extends ChantView {
         canvas.drawRect(-BASE_NOTE_OFFSET/2,0,0,BASE_NOTE_OFFSET,notePaint);
     }
 
+    // This method draws a 'flat' symbol at the start of the current syllable.
     protected void drawFlat(Canvas canvas) {
         canvas.save();
         if (clef.get(currentSection) == Clef.DO) {
@@ -829,6 +861,7 @@ public class GregorianChantView extends ChantView {
         canvas.restore();
     }
 
+    // This method draws a 'neutral' symbol at the start of the current syllable.
     protected void drawNeutral(Canvas canvas) {
         canvas.save();
         if (clef.get(currentSection) == Clef.DO) {
